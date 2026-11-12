@@ -12,6 +12,7 @@ public class UserResponse {
     private String username;
     private String email;
     private String displayName;
+    private String role;
     private LocalDateTime createdAt;
 
     public static UserResponse from(User user) {
@@ -20,6 +21,7 @@ public class UserResponse {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .displayName(user.getDisplayName())
+                .role(user.getRole().name())
                 .createdAt(user.getCreatedAt())
                 .build();
     }

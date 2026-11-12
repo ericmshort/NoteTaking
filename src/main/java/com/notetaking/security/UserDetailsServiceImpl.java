@@ -19,9 +19,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         var user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+        var authority = new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                "ROLE_" + user.getRole().name());
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
                 user.getPasswordHash(),
-                Collections.emptyList());
+                java.util.List.of(authority));
     }
 }

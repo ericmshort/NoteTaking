@@ -13,6 +13,8 @@ import java.util.Set;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class User {
 
+    public enum Role { USER, ADMIN }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -28,6 +30,11 @@ public class User {
 
     @Column(length = 100)
     private String displayName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private Role role = Role.USER;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

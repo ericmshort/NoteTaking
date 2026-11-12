@@ -7,6 +7,7 @@ import com.notetaking.dto.request.RegisterRequest;
 import com.notetaking.dto.response.AuthResponse;
 import com.notetaking.dto.response.UserResponse;
 import com.notetaking.service.AuthService;
+import com.notetaking.service.TokenRevocationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -32,6 +33,7 @@ class AuthControllerTest {
     @MockBean com.notetaking.security.JwtTokenProvider tokenProvider;
     @MockBean com.notetaking.security.UserDetailsServiceImpl userDetailsService;
     @MockBean com.notetaking.repository.UserRepository userRepository;
+    @MockBean TokenRevocationService revocationService;
 
     private AuthResponse stubResponse() {
         return AuthResponse.builder()

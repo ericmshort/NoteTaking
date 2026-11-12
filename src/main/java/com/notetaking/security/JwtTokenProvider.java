@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
@@ -24,6 +26,7 @@ public class JwtTokenProvider {
 
     public String generateToken(String username) {
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())   // JTI — unique per token, used for revocation
                 .subject(username)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
@@ -33,6 +36,14 @@ public class JwtTokenProvider {
 
     public String getUsernameFromToken(String token) {
         return parseClaims(token).getSubject();
+    }
+
+    public String getJtiFromToken(String token) {
+        return parseClaims(token).getId();
+    }
+
+    public Instant getIssuedAtFromToken(String token) {
+        return parseClaims(token).getIssuedAt().toInstant();
     }
 
     public boolean validateToken(String token) {

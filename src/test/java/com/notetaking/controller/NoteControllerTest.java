@@ -9,6 +9,7 @@ import com.notetaking.repository.UserRepository;
 import com.notetaking.security.JwtTokenProvider;
 import com.notetaking.security.UserDetailsServiceImpl;
 import com.notetaking.service.NoteService;
+import com.notetaking.service.TokenRevocationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,6 +37,7 @@ class NoteControllerTest {
     @MockBean JwtTokenProvider tokenProvider;
     @MockBean UserDetailsServiceImpl userDetailsService;
     @MockBean UserRepository userRepository;
+    @MockBean TokenRevocationService revocationService;
 
     private static final User ALICE = User.builder()
             .id(1L).username("alice").email("a@a.com").passwordHash("h").build();
