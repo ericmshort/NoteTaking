@@ -13,20 +13,25 @@ public class AdminService {
 
     private final UserRepository userRepository;
     private final TokenRevocationService revocationService;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public void setUserRole(String username, User.Role role) {
         var user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new NotFoundException("User not found: " + username));
         user.setRole(role);
-        // Revoke all existing tokens so the role change takes effect immediately
-        revocationService.revokeAllTokensForUser(username);
+        revokeAllSessions(username);
     }
 
     public void revokeAllTokensForUser(String username) {
         if (!userRepository.existsByUsername(username)) {
             throw new NotFoundException("User not found: " + username);
         }
+        revokeAllSessions(username);
+    }
+
+    private void revokeAllSessions(String username) {
         revocationService.revokeAllTokensForUser(username);
+        refreshTokenService.revokeAllForUser(username);
     }
 }

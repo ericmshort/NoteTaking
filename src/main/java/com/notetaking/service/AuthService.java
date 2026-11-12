@@ -24,6 +24,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final AuthenticationManager authManager;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional
     public AuthResponse register(RegisterRequest req) {
@@ -40,22 +41,34 @@ public class AuthService {
                 .displayName(req.getDisplayName())
                 .build();
         userRepository.save(user);
-        var token = tokenProvider.generateToken(user.getUsername());
-        return AuthResponse.builder()
-                .token(token)
-                .tokenType("Bearer")
-                .user(UserResponse.from(user))
-                .build();
+        return buildResponse(user);
     }
 
     public AuthResponse login(LoginRequest req) {
         authManager.authenticate(
                 new UsernamePasswordAuthenticationToken(req.getUsername(), req.getPassword()));
         var user = userRepository.findByUsername(req.getUsername()).orElseThrow();
-        var token = tokenProvider.generateToken(user.getUsername());
+        return buildResponse(user);
+    }
+
+    @Transactional
+    public AuthResponse refresh(String refreshTokenValue) {
+        var newRefreshToken = refreshTokenService.validateAndRotate(refreshTokenValue);
+        var user = userRepository.findByUsername(newRefreshToken.getUsername())
+                .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "User not found"));
         return AuthResponse.builder()
-                .token(token)
+                .accessToken(tokenProvider.generateToken(user.getUsername()))
                 .tokenType("Bearer")
+                .refreshToken(newRefreshToken.getToken())
+                .user(UserResponse.from(user))
+                .build();
+    }
+
+    private AuthResponse buildResponse(User user) {
+        return AuthResponse.builder()
+                .accessToken(tokenProvider.generateToken(user.getUsername()))
+                .tokenType("Bearer")
+                .refreshToken(refreshTokenService.createToken(user.getUsername()).getToken())
                 .user(UserResponse.from(user))
                 .build();
     }

@@ -7,6 +7,7 @@ import com.notetaking.dto.request.RegisterRequest;
 import com.notetaking.dto.response.AuthResponse;
 import com.notetaking.dto.response.UserResponse;
 import com.notetaking.service.AuthService;
+import com.notetaking.service.RefreshTokenService;
 import com.notetaking.service.TokenRevocationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,11 +35,13 @@ class AuthControllerTest {
     @MockBean com.notetaking.security.UserDetailsServiceImpl userDetailsService;
     @MockBean com.notetaking.repository.UserRepository userRepository;
     @MockBean TokenRevocationService revocationService;
+    @MockBean RefreshTokenService refreshTokenService;
 
     private AuthResponse stubResponse() {
         return AuthResponse.builder()
-                .token("test-token")
+                .accessToken("test-token")
                 .tokenType("Bearer")
+                .refreshToken("test-refresh-token")
                 .user(UserResponse.builder()
                         .id(1L).username("alice").email("alice@example.com")
                         .createdAt(LocalDateTime.now()).build())
@@ -57,7 +60,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/v1/auth/register")                        .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.token").value("test-token"))
+                .andExpect(jsonPath("$.accessToken").value("test-token"))
                 .andExpect(jsonPath("$.user.username").value("alice"));
     }
 

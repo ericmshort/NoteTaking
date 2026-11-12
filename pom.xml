@@ -76,6 +76,29 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Actuator - health, metrics, readiness/liveness probes -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!--
+            Redis - persistent token revocation store.
+            Activated when spring.data.redis.host is set; falls back to
+            InMemoryTokenRevocationStore when Redis is not configured.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Structured JSON logging (active under spring.profiles.active=prod) -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
