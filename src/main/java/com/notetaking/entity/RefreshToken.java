@@ -15,8 +15,9 @@ public class RefreshToken {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 36)
-    private String token;
+    // SHA-256 hex of the raw token value; raw value is sent to the client and never persisted
+    @Column(nullable = false, unique = true, length = 64)
+    private String tokenHash;
 
     @Column(nullable = false, length = 50)
     private String username;

@@ -36,6 +36,7 @@ class AuthControllerTest {
     @MockBean com.notetaking.repository.UserRepository userRepository;
     @MockBean TokenRevocationService revocationService;
     @MockBean RefreshTokenService refreshTokenService;
+    @MockBean com.notetaking.service.AccountLockService accountLockService;
 
     private AuthResponse stubResponse() {
         return AuthResponse.builder()

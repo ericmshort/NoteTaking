@@ -18,12 +18,17 @@ import org.springframework.test.web.servlet.MvcResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 /**
  * Full-stack integration tests: HTTP → Security → Controller → Service → H2.
  * No mocks — every layer exercises real code paths.
  */
-@SpringBootTest(properties = {"ADMIN_USERNAME=integrationAdmin", "ADMIN_PASSWORD=adminPass1!"})
+@SpringBootTest(properties = {
+        "ADMIN_USERNAME=integrationAdmin",
+        "ADMIN_PASSWORD=adminPass1!",
+        "app.security.max-failed-attempts=3"   // low threshold so lockout tests don't need 10 attempts
+})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class AuthIntegrationTest {
@@ -190,6 +195,33 @@ class AuthIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ── account lockout ──────────────────────────────────────────────────────
+
+    @Test
+    void accountLockout_afterMaxFailedAttempts_returns401WithLockedMessage() throws Exception {
+        register("kira");
+        var badReq = new LoginRequest();
+        badReq.setUsername("kira");
+        badReq.setPassword("wrongpassword");
+        var payload = objectMapper.writeValueAsString(badReq);
+
+        // 3 failed attempts (matches app.security.max-failed-attempts=3 override)
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(payload))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 4th attempt — account is now locked
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value(
+                        org.hamcrest.Matchers.containsString("locked")));
     }
 
     // ── admin role ───────────────────────────────────────────────────────────

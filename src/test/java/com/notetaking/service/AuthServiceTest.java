@@ -6,6 +6,7 @@ import com.notetaking.entity.User;
 import com.notetaking.exception.AppException;
 import com.notetaking.repository.UserRepository;
 import com.notetaking.security.JwtTokenProvider;
+import com.notetaking.service.AccountLockService;
 import com.notetaking.service.RefreshTokenService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +31,7 @@ class AuthServiceTest {
     @Mock JwtTokenProvider tokenProvider;
     @Mock AuthenticationManager authManager;
     @Mock RefreshTokenService refreshTokenService;
+    @Mock AccountLockService accountLockService;
 
     @InjectMocks AuthService authService;
 
@@ -49,10 +51,7 @@ class AuthServiceTest {
             return u;
         });
         when(tokenProvider.generateToken("alice")).thenReturn("jwt-token");
-        var fakeRefresh = com.notetaking.entity.RefreshToken.builder()
-                .token("refresh-token").username("alice")
-                .expiresAt(java.time.Instant.now().plusSeconds(604800)).build();
-        when(refreshTokenService.createToken("alice")).thenReturn(fakeRefresh);
+        when(refreshTokenService.createToken("alice")).thenReturn("refresh-token");
 
         var result = authService.register(req);
 
@@ -84,10 +83,7 @@ class AuthServiceTest {
         var user = User.builder().id(1L).username("alice").email("a@a.com").passwordHash("h").build();
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
         when(tokenProvider.generateToken("alice")).thenReturn("jwt-token");
-        var fakeRefresh = com.notetaking.entity.RefreshToken.builder()
-                .token("refresh-token").username("alice")
-                .expiresAt(java.time.Instant.now().plusSeconds(604800)).build();
-        when(refreshTokenService.createToken("alice")).thenReturn(fakeRefresh);
+        when(refreshTokenService.createToken("alice")).thenReturn("refresh-token");
 
         var result = authService.login(req);
 

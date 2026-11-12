@@ -9,35 +9,43 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class RefreshTokenService {
 
+    public record RotationResult(String username, String newRawToken) {}
+
     private final RefreshTokenRepository repo;
 
     @Value("${app.refresh-token.expiry-days:7}")
     private int expiryDays;
 
-    public RefreshToken createToken(String username) {
-        var token = RefreshToken.builder()
-                .token(UUID.randomUUID().toString())
+    /** Creates a refresh token, persists its hash, and returns the raw value for the client. */
+    public String createToken(String username) {
+        var raw = UUID.randomUUID().toString();
+        repo.save(RefreshToken.builder()
+                .tokenHash(hash(raw))
                 .username(username)
                 .expiresAt(Instant.now().plus(expiryDays, ChronoUnit.DAYS))
-                .build();
-        return repo.save(token);
+                .build());
+        return raw;
     }
 
     /**
-     * Validates the token, then rotates it: revokes the old one and returns a fresh one.
-     * Rotation means a stolen refresh token can only be used once before detection.
+     * Validates the token, then rotates: revokes the old entry and creates a new one.
+     * Rotation ensures a stolen refresh token can only be used once before detection.
      */
     @Transactional
-    public RefreshToken validateAndRotate(String tokenValue) {
-        var stored = repo.findByToken(tokenValue)
+    public RotationResult validateAndRotate(String rawToken) {
+        var stored = repo.findByTokenHash(hash(rawToken))
                 .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
 
         if (stored.isRevoked()) {
@@ -48,20 +56,26 @@ public class RefreshTokenService {
         }
 
         stored.setRevoked(true);
-        repo.save(stored);
-        return createToken(stored.getUsername());
+        return new RotationResult(stored.getUsername(), createToken(stored.getUsername()));
     }
 
     @Transactional
-    public void revokeToken(String tokenValue) {
-        repo.findByToken(tokenValue).ifPresent(t -> {
-            t.setRevoked(true);
-            repo.save(t);
-        });
+    public void revokeToken(String rawToken) {
+        repo.findByTokenHash(hash(rawToken)).ifPresent(t -> t.setRevoked(true));
     }
 
     @Transactional
     public void revokeAllForUser(String username) {
         repo.revokeAllByUsername(username);
+    }
+
+    static String hash(String value) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(
+                    digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
     }
 }

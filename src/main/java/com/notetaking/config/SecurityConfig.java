@@ -68,6 +68,10 @@ public class SecurityConfig {
 
         if (enforceHttps) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
+            http.headers(h -> h
+                    .httpStrictTransportSecurity(hsts -> hsts
+                            .maxAgeInSeconds(31536000)
+                            .includeSubDomains(true)));
         }
 
         return http.build();

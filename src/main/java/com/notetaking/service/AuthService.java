@@ -11,7 +11,9 @@ import com.notetaking.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,14 +27,16 @@ public class AuthService {
     private final JwtTokenProvider tokenProvider;
     private final AuthenticationManager authManager;
     private final RefreshTokenService refreshTokenService;
+    private final AccountLockService accountLockService;
 
     @Transactional
     public AuthResponse register(RegisterRequest req) {
-        if (userRepository.existsByUsername(req.getUsername())) {
-            throw new AppException(HttpStatus.CONFLICT, "Username already taken: " + req.getUsername());
-        }
-        if (userRepository.existsByEmail(req.getEmail())) {
-            throw new AppException(HttpStatus.CONFLICT, "Email already registered: " + req.getEmail());
+        boolean usernameTaken = userRepository.existsByUsername(req.getUsername());
+        boolean emailTaken    = userRepository.existsByEmail(req.getEmail());
+        if (usernameTaken || emailTaken) {
+            // Generic message prevents username/email enumeration
+            throw new AppException(HttpStatus.CONFLICT,
+                    "An account with this username or email already exists");
         }
         var user = User.builder()
                 .username(req.getUsername())
@@ -45,21 +49,29 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest req) {
-        authManager.authenticate(
-                new UsernamePasswordAuthenticationToken(req.getUsername(), req.getPassword()));
+        try {
+            authManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(req.getUsername(), req.getPassword()));
+        } catch (LockedException e) {
+            throw e; // account is already locked — counter stays; GlobalExceptionHandler returns 401
+        } catch (AuthenticationException e) {
+            accountLockService.recordFailedAttempt(req.getUsername());
+            throw e; // GlobalExceptionHandler.handleBadCredentials returns 401
+        }
         var user = userRepository.findByUsername(req.getUsername()).orElseThrow();
+        accountLockService.resetAttempts(req.getUsername());
         return buildResponse(user);
     }
 
     @Transactional
-    public AuthResponse refresh(String refreshTokenValue) {
-        var newRefreshToken = refreshTokenService.validateAndRotate(refreshTokenValue);
-        var user = userRepository.findByUsername(newRefreshToken.getUsername())
+    public AuthResponse refresh(String rawRefreshToken) {
+        var result = refreshTokenService.validateAndRotate(rawRefreshToken);
+        var user = userRepository.findByUsername(result.username())
                 .orElseThrow(() -> new AppException(HttpStatus.UNAUTHORIZED, "User not found"));
         return AuthResponse.builder()
                 .accessToken(tokenProvider.generateToken(user.getUsername()))
                 .tokenType("Bearer")
-                .refreshToken(newRefreshToken.getToken())
+                .refreshToken(result.newRawToken())
                 .user(UserResponse.from(user))
                 .build();
     }
@@ -68,7 +80,7 @@ public class AuthService {
         return AuthResponse.builder()
                 .accessToken(tokenProvider.generateToken(user.getUsername()))
                 .tokenType("Bearer")
-                .refreshToken(refreshTokenService.createToken(user.getUsername()).getToken())
+                .refreshToken(refreshTokenService.createToken(user.getUsername()))
                 .user(UserResponse.from(user))
                 .build();
     }
