@@ -63,5 +63,25 @@ public interface NoteRepository extends JpaRepository<Note, Long> {
                                    @Param("query") String query,
                                    Pageable pageable);
 
+    // Combined search + notebook filter — used when both query and notebookId are supplied.
+    @Query("""
+            SELECT n FROM Note n
+            WHERE n.archived = false
+              AND (LOWER(n.title) LIKE :query OR LOWER(n.content) LIKE :query)
+              AND n.notebook = :notebook
+              AND (
+                n.owner.id = :userId
+                OR (n.sharedWithTeam IS NOT NULL
+                    AND EXISTS (
+                        SELECT m FROM TeamMembership m
+                        WHERE m.team = n.sharedWithTeam AND m.user.id = :userId
+                    ))
+              )
+            """)
+    Page<Note> searchVisibleToUserInNotebook(@Param("userId") Long userId,
+                                             @Param("query") String query,
+                                             @Param("notebook") Notebook notebook,
+                                             Pageable pageable);
+
     Page<Note> findByOwnerAndArchived(User owner, boolean archived, Pageable pageable);
 }

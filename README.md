@@ -38,30 +38,33 @@ All endpoints under `/api/v1/` require `Authorization: Bearer <token>` except au
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/auth/register` | Create account, returns JWT |
-| `POST` | `/api/v1/auth/login` | Log in, returns JWT (rate-limited: 5/min per IP) |
-| `POST` | `/api/v1/auth/logout` | Revoke the caller's current token (requires auth) |
+| `POST` | `/api/v1/auth/register` | Create account, returns tokens |
+| `POST` | `/api/v1/auth/login` | Log in, returns tokens (rate-limited: 5 failures/min per IP) |
+| `POST` | `/api/v1/auth/refresh` | Exchange a refresh token for a new token pair |
+| `POST` | `/api/v1/auth/logout` | Revoke the current access token and refresh token |
 
-**Register:**
+**Register / Login** both return:
 ```json
-POST /api/v1/auth/register
 {
-  "username": "alice",
-  "email": "alice@example.com",
-  "password": "password123",
-  "displayName": "Alice"
+  "accessToken": "eyJ...",
+  "refreshToken": "uuid-raw-value",
+  "tokenType": "Bearer",
+  "user": { "id": 1, "username": "alice", "email": "alice@example.com", ... }
 }
 ```
 
-**Login:**
+**Refresh:**
 ```json
-POST /api/v1/auth/login
-{ "username": "alice", "password": "password123" }
+POST /api/v1/auth/refresh
+{ "refreshToken": "uuid-raw-value" }
 ```
+Returns a new token pair. Refresh tokens are **rotated on each use** — the old token is immediately revoked, so each token can only be used once.
 
-Both return:
+**Logout:**
 ```json
-{ "token": "...", "tokenType": "Bearer", "user": { "id": 1, "username": "alice", ... } }
+POST /api/v1/auth/logout
+Authorization: Bearer <accessToken>
+{ "refreshToken": "uuid-raw-value" }   // body is optional but revokes the refresh token too
 ```
 
 ---
@@ -111,7 +114,8 @@ Personal notebooks only. Notes can be organized into them optionally.
 |--------|------|-------------|
 | `GET` | `/api/v1/notes` | List notes visible to you (paginated) |
 | `GET` | `/api/v1/notes?notebookId=1` | Filter by notebook |
-| `GET` | `/api/v1/notes?q=meeting` | Full-text search |
+| `GET` | `/api/v1/notes?q=meeting` | Full-text search (title + content) |
+| `GET` | `/api/v1/notes?q=meeting&notebookId=1` | Search within a specific notebook |
 | `GET` | `/api/v1/notes/{id}` | Get a note |
 | `POST` | `/api/v1/notes` | Create a note |
 | `PUT` | `/api/v1/notes/{id}` | Update a note (owner only) |
@@ -198,15 +202,29 @@ export CORS_ALLOWED_ORIGINS="https://app.example.com,https://staging.example.com
 ### Login Rate Limiting
 The `POST /api/v1/auth/login` endpoint is limited to **5 attempts per minute per IP address** (sliding window). Exceeding this returns `429 Too Many Requests`.
 
+### Refresh Tokens
+Access tokens expire after 15 minutes. The login and register responses include a `refreshToken` (7-day lifetime). Exchange it at `POST /api/v1/auth/refresh` for a new access + refresh token pair. Refresh tokens are **rotated on every use** — the old token is revoked the moment a new one is issued, so a stolen token can only be used once before it's detected.
+
+Refresh tokens are stored as SHA-256 hashes in the database. The raw value is sent to the client and never persisted.
+
+### Account Lockout
+After **10 consecutive failed login attempts** the account is locked for **15 minutes**. The thresholds are configurable:
+```properties
+app.security.max-failed-attempts=10
+app.security.lockout-minutes=15
+```
+A successful login resets the counter.
+
 ### Token Revocation
-- **Self-logout:** `POST /api/v1/auth/logout` invalidates the calling user's current token by its JTI (JWT ID).
-- **Admin force-logout:** `DELETE /api/v1/admin/users/{username}/tokens` revokes all tokens for a user by recording a revocation timestamp — any token issued before that moment is rejected.
-- The revocation store is in-memory (lost on restart). For production, replace `TokenRevocationService` with a Redis-backed implementation.
+- **Self-logout:** `POST /api/v1/auth/logout` immediately revokes the calling user's access token (by JTI) and their refresh token.
+- **Admin force-logout:** `DELETE /api/v1/admin/users/{username}/tokens` revokes all tokens for a user by recording a revocation timestamp — any access token issued before that moment is rejected, and all stored refresh tokens for the user are marked revoked.
+- **Revocation store:** defaults to an in-memory store (entries survive until JVM restart; a scheduled task purges expired entries hourly). Activate the **Redis-backed store** by setting `spring.data.redis.host` — no code changes needed, the implementation is selected automatically via `@ConditionalOnProperty`.
 
 ### Admin Role
 Users have one of two roles: `USER` (default) or `ADMIN`. Admin-only surfaces:
 - `/api/v1/admin/**` endpoints
 - `/h2-console/**` (H2 database console)
+- `/actuator/**` (except `/actuator/health` and `/actuator/info`, which are public)
 
 The first admin account is bootstrapped via `ADMIN_USERNAME` / `ADMIN_PASSWORD` environment variables on startup.
 
@@ -261,10 +279,10 @@ All secrets are injected via environment variables. No secrets are hardcoded.
 
 **Production checklist:**
 - Set `JWT_SECRET` to a securely generated key
-- Set `HTTPS_ENFORCE=true` with a TLS-terminating reverse proxy
+- Set `HTTPS_ENFORCE=true` with a TLS-terminating reverse proxy (also enables HSTS)
 - Set `CORS_ALLOWED_ORIGINS` to your frontend's domain
-- Set `spring.jpa.show-sql=false` (already the default)
 - Set `spring.jpa.hibernate.ddl-auto=validate` after initial schema creation
+- Set `spring.data.redis.host` to activate the Redis-backed token revocation store
 - Consider disabling the H2 console: `spring.h2.console.enabled=false` (it's already ADMIN-only when enabled)
 
 ---
@@ -277,11 +295,14 @@ src/main/java/com/notetaking/
 ├── config/          SecurityConfig, DataInitializer
 ├── controller/      AuthController, AdminController, NoteController, NotebookController, TeamController
 ├── dto/             request/ and response/ DTOs
-├── entity/          User (with Role enum), Team, TeamMembership, Notebook, Note
+├── entity/          User (with Role enum), Team, TeamMembership, Notebook, Note, RefreshToken
 ├── exception/       AppException, GlobalExceptionHandler (RFC 7807-style errors)
 ├── repository/      Spring Data JPA interfaces
 ├── security/        JwtTokenProvider, JwtAuthenticationFilter, LoginRateLimitFilter, UserDetailsServiceImpl
-└── service/         AuthService, AdminService, TokenRevocationService, NoteService, NotebookService, TeamService
+├── service/         AuthService, AdminService, AccountLockService, RefreshTokenService,
+│                    TokenRevocationService, InMemoryTokenRevocationStore, RedisTokenRevocationStore,
+│                    NoteService, NotebookService, TeamService
+└── validation/      NullOrNotBlank (custom constraint)
 ```
 
 ---
@@ -314,20 +335,31 @@ All queries are expressed in JPQL against entity objects, not table names or col
 
 ## If We Had More Time
 
-These features were consciously left out of scope but represent natural next steps:
+### Production-readiness gaps
 
-- **Flyway schema migrations** — currently using `ddl-auto=update` (fine for dev, risky in production). Flyway versioned migration scripts would make schema changes auditable and reversible.
-- **Role-based note permissions within teams** — right now all team members have equal read access to shared notes. A finer-grained model (read-only vs. editor per team member) would suit larger teams.
-- **Note tagging** — a many-to-many `tags` relationship on notes enabling tag-based filtering alongside notebook-based organization.
-- **Sharing with multiple teams** — replace the single `sharedWithTeamId` with a `note_team_shares` join table so a note can be shared with more than one team simultaneously.
-- **Soft delete / trash** — notes currently hard-delete. A `deleted_at` timestamp with a trash/restore API would prevent accidental permanent loss.
-- **Search index integration** — the current LIKE-based search is O(n) across all visible notes. A PostgreSQL `tsvector` index or Elasticsearch integration would scale to large note sets. The service layer search interface is already isolated for this replacement.
-- **Audit log** — record who created, edited, shared, or deleted each note, with timestamps, to support compliance and accountability requirements.
-- **Redis-backed token revocation** — the current in-memory `TokenRevocationService` is lost on restart. A Redis store (or database table) would survive restarts and work across multiple instances.
-- **Refresh tokens** — the current JWT is a single long-lived token (24h). Issuing a short-lived access token + long-lived refresh token improves security by limiting the blast radius of a leaked token.
-- **OpenAPI / Swagger UI** — auto-generate interactive API docs from the controller annotations using `springdoc-openapi`.
-- **Email verification** — confirm user email addresses at registration before allowing login.
-- **Integration test suite** — the current tests mock the database layer. A full `@SpringBootTest` integration suite running against a real (Testcontainers) PostgreSQL instance would catch dialect-specific query issues before they reach production.
+- **Schema migrations (Flyway)** — `ddl-auto=update` is acceptable in development but dangerous in production: it cannot drop columns or tables and can silently fail on constraint changes. Versioned Flyway migration scripts would make schema evolution auditable, reversible, and safe to run in CI before deploy.
+
+- **PostgreSQL migration** — H2 is intentionally used here as a zero-config embedded database suited to a self-contained exercise. The switch to PostgreSQL (or any JDBC-compatible DB) requires changing three `application.properties` lines and swapping the Maven dependency; no Java changes are needed. I would do this before any production deployment.
+
+- **Testcontainers integration** — the `@SpringBootTest` integration tests run against H2. Running the same tests against a real PostgreSQL instance via Testcontainers would catch dialect-specific query issues before they reach production.
+
+- **Per-user rate limiting** — the login rate limit is per source IP. Behind a corporate NAT or shared WiFi, all users share the same budget. Combining per-IP and per-username limiting would be more precise while still blocking distributed credential-stuffing from many IPs.
+
+### Code quality improvements
+
+- **Centralize `resolveId`** — `NoteController`, `NotebookController`, and `TeamController` each contain an identical private `resolveId(username)` helper that looks up the authenticated user. Extracting this into a `CurrentUserService` (or a custom `@AuthenticationPrincipal` resolver) would eliminate the duplication and the extra database round-trip on every request.
+
+- **OpenAPI / Swagger UI** — adding `springdoc-openapi` would auto-generate interactive API documentation from the existing controller annotations at zero maintenance cost.
+
+### Feature additions
+
+- **Role-based note permissions within teams** — all team members currently have equal read access to shared notes. A finer-grained model (view-only vs. editor) would suit larger teams.
+- **Multi-team sharing** — replace the single `sharedWithTeamId` with a `note_team_shares` join table.
+- **Note tagging** — a many-to-many `tags` relationship enabling tag-based filtering alongside notebook organization.
+- **Soft delete / trash** — notes currently hard-delete. A `deleted_at` timestamp with a restore API would prevent accidental loss.
+- **Search index** — the LIKE-based search is O(n) across all visible notes. A PostgreSQL `tsvector` index or Elasticsearch integration would scale to large data sets. The service-layer search interface is already isolated for this swap.
+- **Audit log** — record who created, edited, shared, or deleted each note to support compliance requirements.
+- **Email verification** — confirm addresses at registration before allowing login.
 
 ---
 
@@ -337,7 +369,17 @@ These features were consciously left out of scope but represent natural next ste
 mvn test
 ```
 
-16 tests covering service-layer logic and controller endpoints.
+55 tests across unit, slice, and full-stack integration layers:
+
+| Layer | Test class | Count |
+|---|---|---|
+| Unit — services | `AuthServiceTest`, `NoteServiceTest`, `AccountLockServiceTest`, `RefreshTokenServiceTest`, `InMemoryTokenRevocationStoreTest`, `AdminServiceTest` | 29 |
+| Controller slice (`@WebMvcTest`) | `AuthControllerTest`, `NoteControllerTest` | 7 |
+| Full-stack integration (`@SpringBootTest`) | `AuthIntegrationTest` | 13 |
+| Application context | `NoteTakingApplicationTests` | 1 |
+| **Total** | | **55** |
+
+The integration tests exercise the full HTTP → Security → Controller → Service → H2 stack with no mocks.
 
 ---
 

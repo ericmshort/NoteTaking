@@ -29,6 +29,7 @@ public class RefreshTokenService {
     private int expiryDays;
 
     /** Creates a refresh token, persists its hash, and returns the raw value for the client. */
+    @Transactional
     public String createToken(String username) {
         var raw = UUID.randomUUID().toString();
         repo.save(RefreshToken.builder()

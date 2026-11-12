@@ -33,6 +33,13 @@ public class NoteService {
 
         if (query != null && !query.isBlank()) {
             var likeQuery = "%" + query.trim().toLowerCase() + "%";
+            if (notebookId != null) {
+                var notebook = notebookRepository.findById(notebookId)
+                        .orElseThrow(() -> new NotFoundException("Notebook not found"));
+                return PageResponse.from(
+                        noteRepository.searchVisibleToUserInNotebook(userId, likeQuery, notebook, pageable)
+                                .map(NoteResponse::from));
+            }
             return PageResponse.from(
                     noteRepository.searchVisibleToUser(userId, likeQuery, pageable)
                             .map(NoteResponse::from));

@@ -48,6 +48,7 @@ public class AuthService {
         return buildResponse(user);
     }
 
+    @Transactional(noRollbackFor = AuthenticationException.class)
     public AuthResponse login(LoginRequest req) {
         try {
             authManager.authenticate(

@@ -12,6 +12,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import jakarta.servlet.http.HttpServletResponse;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,7 +44,10 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        String ip = getClientIp(request);
+        // server.forward-headers-strategy=framework causes Spring's ForwardedHeaderFilter to
+        // populate getRemoteAddr() from X-Forwarded-For. Reading the raw header here instead
+        // would take the leftmost (client-controlled) value and allow IP spoofing bypass.
+        String ip = request.getRemoteAddr();
         Deque<Instant> timestamps = attempts.computeIfAbsent(ip, k -> new ArrayDeque<>());
 
         synchronized (timestamps) {
@@ -62,17 +67,16 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
                         .build());
                 return;
             }
-            timestamps.addLast(Instant.now());
         }
 
         chain.doFilter(request, response);
-    }
 
-    private String getClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
+        // Only count failed authentication attempts. Counting successful logins would lock out
+        // users who log in frequently (e.g. mobile apps that re-auth on each launch).
+        if (response.getStatus() == HttpServletResponse.SC_UNAUTHORIZED) {
+            synchronized (timestamps) {
+                timestamps.addLast(Instant.now());
+            }
         }
-        return request.getRemoteAddr();
     }
 }
