@@ -328,8 +328,8 @@ Each layer has one responsibility and is independently testable. Controllers are
 All queries are expressed in JPQL against entity objects, not table names or column names. When the database is swapped, the query syntax remains valid — only the dialect and driver change. The one exception is the LIKE-based full-text search, which is explicitly documented as a placeholder for a DB-native search index.
 
 ---
-
-> I chose to write the project in Java as I am most familiar with that language.  I also chose to use a simple file based H2 db to start with, but to make it easy to swap in a production grade db at a later time.
+### Personal Design Decisions
+I chose to write the project in Java as I am most familiar with that language.  I also chose to use a simple file based H2 db to start with, but to make it easy to swap in a production grade db at a later time.  Since no database preference was mentioned, I decided to make it easy to install any db easily when put into production.  There are areas to be improved to make this project into a production ready backend server.  I have tried to cover the security functionality so that it would start out very secure.  This area is the most important area for a server to focus on.
 
 ---
 
