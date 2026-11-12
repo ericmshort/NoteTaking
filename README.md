@@ -248,7 +248,7 @@ All queries are expressed in JPQL against entity objects, not table names or col
 
 ---
 
-> **Your notes here** — add anything specific about the choices you made, constraints you were working within, or tradeoffs you consciously accepted.
+> I chose to write the project in Java as I am most familiar with that language.  I also chose to use a simple file based H2 db to start with, but to make it easy to swap in a production grade db at a later time.
 
 ---
 
